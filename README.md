@@ -1,100 +1,121 @@
-# 📦 Hệ thống Tệp Phân Tán viết bằng Go
+# 📦 DistributedFileStorage (Go P2P File Server)
 
-Một dự án demo về **Distributed File System (DFS)** được cài đặt bằng ngôn ngữ Go.  
-Mục tiêu của project là minh họa cách xây dựng một dịch vụ lưu trữ file theo mô hình **peer-to-peer**, sử dụng kết nối TCP, cơ chế truyền thông điệp và nhân bản dữ liệu cơ bản.
+## 🚀 Giới thiệu
+Đây là dự án thử nghiệm **hệ thống lưu trữ phân tán** viết bằng **Golang**.  
+Mỗi node trong mạng có thể:
+- Mở port TCP để **lắng nghe kết nối từ peer khác**.  
+- **Dial** (chủ động kết nối) tới các peer có sẵn.  
+- **Trao đổi RPC (message/stream)** để gửi – nhận dữ liệu.  
+- **Lưu trữ file cục bộ** theo cơ chế CAS (*Content Addressed Storage*) – tên file được xác định bằng hash nội dung.  
 
----
-
-## 🚀 Tính năng
-- Viết hoàn toàn bằng **Go**.  
-- Mạng ngang hàng (**P2P**) thông qua TCP.  
-- Lưu trữ và truy xuất file trên nhiều node khác nhau.  
-- Nhân bản (replication) cơ bản để tăng khả năng chịu lỗi.  
-- Cấu trúc module rõ ràng, dễ học các khái niệm hệ phân tán.  
+👉 Tóm lại: mỗi node là **một kho hàng trong mạng P2P**, có thể tự lưu file và chia sẻ với kho khác.
 
 ---
 
-## 🛠️ Cài đặt
+## ⚙️ Cấu trúc chính
 
-### Yêu cầu
-- [Go](https://go.dev/dl/) **>= 1.20**  
-- `git` để clone repository  
-
-### Clone dự án
-```bash
-git clone https://github.com/anthdm/distributedfilesystemgo.git
-cd distributedfilesystemgo
+```
+DistributedFileStorage/
+ ├── main.go                # Entry point: khởi động FileServer
+ ├── server.go              # Server quản lý vòng đời node
+ ├── store.go               # Store: quản lý lưu trữ file theo CAS
+ ├── crypto.go              # Hàm mã hóa/giải mã, chữ ký
+ ├── p2p/                   # Lớp giao tiếp P2P
+ │   ├── transport.go       # Định nghĩa Peer & Transport interface
+ │   ├── tcp_transport.go   # Hiện thực Transport bằng TCP
+ │   ├── encoding.go        # Decoder: chuyển bytes -> RPC
+ │   ├── handshake.go       # Handshake function (NOP hoặc custom)
+ │   ├── message.go         # Định nghĩa RPC (From, Payload, Stream)
+ │   └── tcp_transport_test.go
+ ├── Makefile               # Lệnh build/test
+ ├── go.mod / go.sum        # Module Go
+ └── README.md
 ```
 
 ---
 
-## ⚙️ Sử dụng
+## 🔑 Thành phần chính
+
+### P2P Layer
+- **Transport**: interface trừu tượng hóa kênh liên lạc giữa các node.  
+- **TCPTransport**: implementation dùng TCP.  
+- **RPC**: message truyền qua mạng.  
+- **Handshake**: bước bắt tay, có thể cấy logic xác thực (public key, version…).  
+
+### Application Layer
+- **FileServer**: node chính, quản lý peers và store.  
+- **Store**: lớp lưu file, lưu dưới dạng hash (SHA-1 → thư mục lồng nhau).  
+- **Crypto**: mã hóa/giải mã dữ liệu, bảo mật khi lưu/trao đổi.  
+
+---
+
+## ▶️ Cách chạy
+
+### Yêu cầu
+- Go 1.19+ (khuyến nghị)
+- Git
 
 ### Build
 ```bash
-go build -o bin/fs
+make build
+```
+File thực thi sẽ nằm trong `bin/`.
+
+### Chạy 2–3 node demo trên cùng máy
+**Terminal 1:**
+```bash
+go run . -listen :3000
 ```
 
-### Chạy
+**Terminal 2:**
 ```bash
-./bin/fs
-```
-Trên Windows:
-```powershell
-.\bin\fs.exe
+go run . -listen :7000
 ```
 
-### Chạy với Makefile (Linux/Mac)
+**Terminal 3 (bootstrap vào 2 node trên):**
 ```bash
-make run
+go run . -listen :5000 -join :3000,:7000
 ```
 
-### Chạy test
-```bash
-go test ./... -v
+Khi đó bạn có 3 node kết nối thành mạng nhỏ. Node :5000 sẽ tự dial sang :3000 và :7000.
+
+---
+
+## 📂 Cơ chế lưu trữ (Store)
+
+- File được lưu trong `Root/<node_id>/<hashed_path>/<filename>`.  
+- `hashed_path` = chuỗi hash SHA-1 chia thành các thư mục con 5 ký tự.  
+- `filename` = full SHA-1 hash → đảm bảo duy nhất.  
+
+Ví dụ với key `"hello"`:  
+```
+ggnetwork/
+ └── 3000/
+     └── aaf4c/
+         └── 61ddc/
+             └── 5c23f/...
 ```
 
 ---
 
-## 📖 Ví dụ
-Khởi chạy nhiều peer ở các terminal khác nhau:
+## 🧪 Test
+Chạy test của P2P:
 ```bash
-./bin/fs --port 3000
-./bin/fs --port 3001
-./bin/fs --port 3002
-```
-
-Upload một file:
-```bash
-telnet localhost 3000
-> STORE myfile.txt
-```
-
-Truy xuất file từ node khác:
-```bash
-telnet localhost 3001
-> GET myfile.txt
+cd p2p
+go test -v
 ```
 
 ---
 
-## 🧩 Cấu trúc dự án
-```
-.
-├── p2p/           # Lớp mạng ngang hàng (peer-to-peer)
-├── storage/       # Xử lý lưu trữ file
-├── main.go        # Điểm vào của chương trình
-├── Makefile       # Các lệnh build/run nhanh
-└── go.mod         # Khai báo module Go
-```
+## 🛠️ Ghi chú phát triển
+- `DefaultDecoder` hiện tại **ăn mất byte đầu tiên** nếu không phải stream → khuyến nghị viết decoder mới theo format `[type|length|payload]`.  
+- Hash mặc định SHA-1 (demo), trong thực tế nên nâng lên **SHA-256**.  
+- `Delete()` hiện xóa cả nhánh folder con, nên cẩn thận khi triển khai thật.  
 
 ---
 
-## 🤝 Đóng góp
-Mọi đóng góp đều được hoan nghênh!  
-Hãy fork repo, tạo branch riêng và gửi pull request.  
-
----
-
-## 📜 Giấy phép
-Dự án này phát hành theo giấy phép **MIT License**.  
+## 📌 Kế hoạch mở rộng
+- Thêm **Discovery service** (tự tìm peer thay vì hardcode bootstrap).  
+- Hỗ trợ **protocol encoding** khác (JSON, Protobuf).  
+- Tích hợp **consensus/quorum** để replicate file an toàn.  
+- Thêm **REST API** để người dùng upload/download file dễ dàng.  
